@@ -26,7 +26,8 @@
 (defn execute! [query] (when query (sqlite/execute! db query)))
 
 (defn format-results [history-results]
-  (mapv #(cond-> % (:created_at %) (set/rename-keys {:created_at :created-at}))
+  (mapv #(cond-> %
+           (:created_at %) (set/rename-keys {:created_at :created-at}))
         history-results))
 
 (defn query [sql] (format-results (sqlite/query db sql)))
@@ -156,21 +157,13 @@
           " (content TEXT, "
           "  created_at INTEGER)")])
   (reset! *last-clip (last-clip-db))
-  ;; start watcher
-  (future (while true
-            (let [clip (:out @(shell {:out :string} "pbpaste"))]
-              (insert-clip! clip))
-            (Thread/sleep 100)))
-  ;; sample populate:
-  #_(do (insert-clip! "lemon")
-        (insert-clip! "lime"))
 
-
-  ;; check db:
-  #_(future
-      (while true
-        (println "count: " (count (all-clips)))
-        (Thread/sleep 1000)))
+  ;; start watcher in another thread
+  (future
+    (while true
+      (let [clip (:out @(shell {:out :string} "pbpaste"))]
+        (insert-clip! clip))
+      (Thread/sleep 100)))
 
   (println "initialzation complete."))
 
