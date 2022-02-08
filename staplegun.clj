@@ -11,7 +11,7 @@
    [babashka.pods :as pods]
    [babashka.tasks :refer [shell]]
    [clojure.set :as set])
-  (:import [java.net URLDecoder]))
+  (:import [java.net URLDecoder URLEncoder]))
 
 (println "starting up...")
 
@@ -21,7 +21,6 @@
 (pods/load-pod 'org.babashka/go-sqlite3 "0.0.1")
 (require '[pod.babashka.go-sqlite3 :as sqlite])
 
-(def env (into {} (System/getenv)))
 (def db "staple.db")
 
 (defn execute! [query] (when query (sqlite/execute! db query)))
@@ -33,19 +32,13 @@
 (defn query [sql] (format-results (sqlite/query db sql)))
 
 (defn last-clip-db []
-  (:content (first (query (hdb/format {:select [:content] :from :history :order-by [[:created-at :desc]] :limit 1})))))
+  (->> {:select [:content] :from :history :order-by [[:created-at :desc]] :limit 1}
+       hdb/format
+       query
+       first
+       :content))
 
 (defonce *last-clip (atom nil))
-
-(defn init! []
-  (println "initializing...")
-  (execute!
-    [(str "create virtual table if not exists history "
-          "using fts4"
-          " (content TEXT, "
-          "  created_at INTEGER)")])
-  (reset! *last-clip (last-clip-db))
-  (println "initialzation complete."))
 
 (defn insert-clip! [clip]
   (when (and clip (not= @*last-clip clip))
@@ -57,7 +50,21 @@
                       :from :history
                       :order-by [[:created-at :desc]]})))
 
-(defn clipboard-line-item [{created-at :created-at :keys [content]}]
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; web view
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defn escape-html
+  "Change special characters into HTML character entities."
+  [text]
+  (.. ^String (str text)
+    (replace "&"  "&amp;")
+    (replace "<"  "&lt;")
+    (replace ">"  "&gt;")
+    (replace "\"" "&quot;")
+    (replace "'" "&#39;")))
+
+(defn clipboard-line-item [{:keys [content created-at]}]
   [:div {:style {:margin "5px"}}
    #_[:span created-at]
    [:pre {:style {:overflow-x "scroll"
@@ -65,17 +72,8 @@
                   :background-color "#eef2fe"
                   :border "2px solid grey"
                   :border-radius "2px"
-                  :padding "1px"}} content]])
-
-(def for-clips
-  {:select [:content :created-at]
-   :from   [:history]
-   :order-by [[:created-at :desc]]
-   :limit 10})
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; web view
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+                  :padding "1px"}}
+    (escape-html content)]])
 
 (defn top-ten-section []
   [:section.top-ten {:hx-get "/top-ten" :hx-trigger "every 2s"}
@@ -103,8 +101,7 @@
       [:body {:style {:margin "10px"}}
        [:span.title
         [:h1 {:style {:display "inline"}} "Staple Gun"]
-        " "
-        [:span " Keep track of your clipboard history here."]
+        [:div {:style {:font-size "10px"}} " Keep track of your clipboard history here."]
         [:div
          [:input {:type "text"
                   :autofocus true
@@ -149,16 +146,21 @@
          (.getLocalPort sock1))
        (catch Exception _ (open-port (inc n)))))
 
-(def port (or (:port env) (open-port 4321)))
+(def port (open-port 4321))
 
-(when (= *file* (System/getProperty "babashka.file"))
-  (init!)
-
+(defn init! []
+  (println "initializing...")
+  (execute!
+    [(str "create virtual table if not exists history "
+          "using fts4"
+          " (content TEXT, "
+          "  created_at INTEGER)")])
+  (reset! *last-clip (last-clip-db))
+  ;; start watcher
   (future (while true
             (let [clip (:out @(shell {:out :string} "pbpaste"))]
               (insert-clip! clip))
             (Thread/sleep 100)))
-
   ;; sample populate:
   #_(do (insert-clip! "lemon")
         (insert-clip! "lime"))
@@ -169,6 +171,11 @@
       (while true
         (println "count: " (count (all-clips)))
         (Thread/sleep 1000)))
+
+  (println "initialzation complete."))
+
+(when (= *file* (System/getProperty "babashka.file"))
+  (init!)
 
   ;; run server
   (let [url (str "http://localhost:" port "/")]
