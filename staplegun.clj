@@ -2,32 +2,39 @@
 
 (ns staplegun
   (:require
-   [org.httpkit.server :as httpkit.server]
-   [clojure.core.match :refer [match]]
-   [clojure.java.browse :as browse]
-   [clojure.string :as str]
-   [hiccup.core :as h]
    [babashka.deps :as deps]
    [babashka.pods :as pods]
    [babashka.tasks :refer [shell]]
-   [clojure.set :as set])
-  (:import [java.net URLDecoder URLEncoder]))
+   [clojure.core.match :refer [match]]
+   [clojure.java.browse :as browse]
+   [clojure.set :as set]
+   [clojure.string :as str]
+   [hiccup.core :as h]
+   [org.httpkit.server :as httpkit.server])
+  (:import
+   [java.net URLDecoder]))
 
 (println "starting up...")
 
-(deps/add-deps '{:deps {com.github.seancorfield/honeysql {:mvn/version "2.2.861"}}})
-(require '[honey.sql :as hdb])
 
+(deps/add-deps '{:deps {com.github.seancorfield/honeysql {:mvn/version "2.2.861"}
+                        camel-snake-kebab/camel-snake-kebab {:mvn/version "0.4.2"}}})
+;; sql generation
+(require '[honey.sql :as hdb])
+;; keyword things
+(require '[camel-snake-kebab.core :as csk])
+
+;; sqlite connection
 (pods/load-pod 'org.babashka/go-sqlite3 "0.0.1")
 (require '[pod.babashka.go-sqlite3 :as sqlite])
 
-(def db "staple.db")
+(def db "The database file on disk" "staple.db")
 
 (defn execute! [query] (when query (sqlite/execute! db query)))
 
+(defn map-keys [f m] (zipmap (map f (keys m)) (vals m)))
 (defn format-results [history-results]
-  (mapv #(cond-> %
-           (:created_at %) (set/rename-keys {:created_at :created-at}))
+  (mapv #(map-keys csk/->kebab-case %)
         history-results))
 
 (defn query [sql] (format-results (sqlite/query db sql)))
@@ -41,15 +48,12 @@
 
 (defonce *last-clip (atom nil))
 
-(defn insert-clip! [clip]
-  (when (and clip (not= @*last-clip clip))
+(defn insert-clip-if-needed! [clip]
+  (when
+      ;; don't just re-insert the very last clip, since this gets called many times
+      (and clip (not= @*last-clip clip))
     (reset! *last-clip clip)
     (execute! ["insert into history (content, created_at) VALUES (?, ?)" clip (quot (System/currentTimeMillis) 1000)])))
-
-(defn all-clips []
-  (query (hdb/format {:select [:*]
-                      :from :history
-                      :order-by [[:created-at :desc]]})))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; web view
@@ -77,14 +81,15 @@
     (escape-html content)]])
 
 (defn top-ten-section []
-  [:section.top-ten {:hx-get "/top-ten" :hx-trigger "every 2s"}
-   [:div {:style {:border "3px solid #858" :margin "5px" :padding "5px"}}
-    [:h3 "Last 20"]
+  [:section.top-ten
+   [:div {:style {:border "3px solid #858" :margin "5px" :padding "5px" :border-radius "10px"}}
+    [:h2 "Last 50"]
+    [:button {:hx-get "/top-ten" :hx-target "section#top-ten"} "Refresh"]
     [:div
      (map clipboard-line-item (query (hdb/format {:select [:content :created-at]
                                                   :from   [:history]
                                                   :order-by [[:created-at :desc]]
-                                                  :limit 20})))]]])
+                                                  :limit 50})))]]])
 
 (defn matchize [term]
   (str/join " " (mapv #(str "*" % "*") (str/split term #" "))))
@@ -97,37 +102,47 @@
       [:head
        [:meta {:charset "UTF-8"}]
        [:title "Staple Gun"]
-       [:script {:src "https://unpkg.com/htmx.org@1.5.0/dist/htmx.min.js" :defer true}]
-       [:script {:src "https://unpkg.com/hyperscript.org@0.8.1/dist/_hyperscript.min.js" :defer true}]]
+       [:script {:src "https://unpkg.com/htmx.org@1.5.0/dist/htmx.min.js"}]
+       [:script {:src "https://unpkg.com/hyperscript.org@0.8.1/dist/_hyperscript.min.js" :defer true}]
+       ]
       [:body {:style {:margin "10px"}}
        [:span.title
         [:h1 {:style {:display "inline"}} "Staple Gun"]
         [:div {:style {:font-size "10px"}} " Keep track of your clipboard history here."]
         [:div
-         [:input {:type "text"
-                  :autofocus true
-                  :name "clipboard-query"
-                  :hx-post "/search"
-                  :hx-trigger "keyup changed once, every 2s" ;; delay:500
-                  :hx-target "section#results"
-                  :placeholder "Search..."}]]]
+         [:input#search-input
+          {:type "search"
+           :autofocus true
+           :name "clipboard-query"
+           :hx-post "/search"
+           :hx-trigger "keyup changed delay:200, clipboard-query, once every 60s"
+           :hx-target "section#results"
+           :placeholder "Search..."}]]]
        [:section#results]
-       [:section#top-ten (top-ten-section)]])))
+       [:section#top-ten (top-ten-section)]]
+      [:script
+       ;; read query params, hit search endpoint if needed.
+       "let q = Object.fromEntries(new URLSearchParams(window.location.search).entries()).q;
+        if (typeof q != 'undefined') {
+          let elt = htmx.find('input#search-input');
+          htmx.ajax('POST', '/search', {source: elt, target: '#result-section', values: {from_qp: q}});
+          elt.value = q;
+        }"])))
 
 (defn result-section [search-term]
-  (let [clean (if search-term
-                (str/trim (URLDecoder/decode search-term))
-                "")
+  (let [clean (if search-term (str/trim (URLDecoder/decode search-term)) "")
         results (if search-term
                   (sqlite/query db ["select * from history where content match ? order by created_at desc" clean])
                   [])]
-    (h/html [:div
+    (h/html [:div {:style {:border "3px solid #588" :margin "5px" :padding "5px" :margin-bottom "20px" :border-radius "10px"}}
              [:h3 [:span (count results) " Results for: "[:pre clean]]]
              (into [:div] (map clipboard-line-item results))])))
 
 (defn parse-query-string [query-string]
   (when query-string
-    (-> query-string (str/split #"=") second)))
+    (or
+      (let [[_ v] (re-matches #".*from_qp=(.*)$" query-string)] v)
+      (-> query-string (str/split #"=") second))))
 
 (defn routes [{:keys [request-method uri query-string] :as req}]
   ;; slurp the body and check it
@@ -138,9 +153,16 @@
     (match [request-method path]
            [:get []] {:body (home)}
            [:get ["top-ten"]] {:body (h/html (top-ten-section))}
-           [:post ["search"]] {:body (result-section search-term)}
+           [:post ["search"]] {:body (do
+                                       (println "------------------------------")
+                                       (prn req)
+                                       (prn body)
+                                       (prn search-term)
+                                       (result-section search-term))
+                               :headers {"HX-Push" (if search-term
+                                                     (str "?q=" search-term)
+                                                     "/")}}
            :else {:status 404 :body "Error 404: Page not found"})))
-
 
 (defn open-port [n]
   (try (with-open [sock1 (java.net.ServerSocket. n)]
@@ -162,7 +184,7 @@
   (future
     (while true
       (let [clip (:out @(shell {:out :string} "pbpaste"))]
-        (insert-clip! clip))
+        (insert-clip-if-needed! clip))
       (Thread/sleep 100)))
 
   (println "initialzation complete."))
@@ -177,3 +199,9 @@
     (browse/browse-url url))
 
   @(promise))
+
+
+;; TODO:
+;; copy to clipboard button
+;; choose how many history items to show (paginated?)
+;; figure a good wya to open this
