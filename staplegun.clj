@@ -10,7 +10,8 @@
    [clojure.set :as set]
    [clojure.string :as str]
    [hiccup.core :as h]
-   [org.httpkit.server :as httpkit.server])
+   [org.httpkit.server :as httpkit.server]
+   [selmer.parser :refer [<<]])
   (:import
    [java.net URLDecoder]))
 
@@ -70,15 +71,35 @@
     (replace "'" "&#39;")))
 
 (defn clipboard-line-item [{:keys [content created-at]}]
-  [:div {:style {:margin "5px"}}
-   #_[:span created-at]
-   [:pre {:style {:overflow-x "scroll"
-                  :font-family "monospace"
-                  :background-color "#eef2fe"
-                  :border "2px solid grey"
-                  :border-radius "2px"
-                  :padding "1px"}}
-    (escape-html content)]])
+  (let [my-id (apply str (repeatedly 10 #(rand-nth "qwertyuiopasdfghjklzxcvbnm")))]
+    [:div {:style {:min-height "30px"}}
+     [:div.clipboard-line-item {:style {:margin "5px"}}
+      #_[:span created-at]
+      [:button {:id my-id
+                :style {:width "28px" :height "28px" :line-height "1"}}
+       "📎"]
+      [:div {:style {:width "5px" :height "1px" :display "inline-block"}} " "]
+      [:div {:style {:margin-left "35px" :margin-top "-38px"}}
+       [:pre {:id my-id
+              :style {:overflow-x "scroll"
+                      :font-family "monospace"
+                      :background-color "#eef2fe"
+                      :border "2px solid grey"
+                      :border-radius "2px"
+                      :padding "1px 3px"
+
+                      }}
+        (escape-html content)]]]
+     [:script (<< "
+                   var btn = htmx.find('button#{{my-id}}');
+                   btn.addEventListener('click', (_) => {
+                      clipboardCopy(htmx.find('pre#{{my-id}}').textContent);
+
+          htmx.ajax('GET', '/top-ten', {target: 'section#top-ten'})});
+
+
+"
+                  )]]))
 
 (defn top-ten-section []
   [:section.top-ten
@@ -127,7 +148,10 @@
           let elt = htmx.find('input#search-input');
           htmx.ajax('POST', '/search', {source: elt, target: '#result-section', values: {from_qp: q}});
           elt.value = q;
-        }"])))
+        }"]
+      [:script
+       ;; copy clipboard contents
+       "async function clipboardCopy(text) {await navigator.clipboard.writeText(text);}"])))
 
 (defn result-section [search-term]
   (let [clean (if search-term (str/trim (URLDecoder/decode search-term)) "")
