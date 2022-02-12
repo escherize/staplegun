@@ -1,10 +1,10 @@
 # Staple Gun
 
-Save your clipboard history locally with an open source tool
+Save your clipboard history locally with an open source tool written as a single file
 
 ## usage
 
-    brew installbrew install borkdude/brew/babashka
+    brew install borkdude/brew/babashka
     git clone https://github.com/escherize/staplegun
     cd staplegun
     bb staplegun.clj

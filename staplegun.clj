@@ -224,8 +224,7 @@
 
   @(promise))
 
-
 ;; TODO:
-;; copy to clipboard button
 ;; choose how many history items to show (paginated?)
+;; auto refresh
 ;; figure a good wya to open this
