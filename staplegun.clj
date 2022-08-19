@@ -296,7 +296,8 @@
   (println "initialzation complete."))
 
 (defn prepare-modifications! []
-  (when (fs/exists? ".mods.edn")
+  (when-not (fs/exists? ".mods.edn")
+    (fs/copy "example_mods.edn" ".mods.edn")
     (when-let [mods (read-string (slurp ".mods.edn"))]
       (swap! config update
              :modifications
