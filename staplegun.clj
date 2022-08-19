@@ -1,22 +1,21 @@
 ;; #! /opt/homebrew/bin/bb
-
 (ns staplegun
   (:require
    [babashka.deps :as deps]
    [babashka.pods :as pods]
+   [babashka.process :refer [process check sh pipeline pb]]
+   [babashka.fs :as fs]
    [babashka.tasks :refer [shell]]
    [clojure.core.match :refer [match]]
    [clojure.java.browse :as browse]
-   [clojure.set :as set]
    [clojure.string :as str]
+   [clojure.pprint :as pprint]
    [hiccup.core :as h]
    [org.httpkit.server :as httpkit.server]
-   [selmer.parser :refer [<<]])
+   [selmer.parser :refer [<<]]
+   [clojure.walk :as walk])
   (:import
    [java.net URLDecoder]))
-
-(println "starting up...")
-
 
 (deps/add-deps '{:deps {com.github.seancorfield/honeysql {:mvn/version "2.2.861"}
                         camel-snake-kebab/camel-snake-kebab {:mvn/version "0.4.2"}}})
@@ -29,19 +28,33 @@
 (pods/load-pod 'org.babashka/go-sqlite3 "0.0.1")
 (require '[pod.babashka.go-sqlite3 :as sqlite])
 
-(def db "The database file on disk" "staple.db")
+(def config
+  (atom
+    {:db "staple.db"
+     :modifications [{:re "happy!!!" :export " ٩(◕‿◕｡)۶ "}
+                     {:re "mxmas" :export " ℺ຶཽྈ” ⋆ᗰદ૨૨ʏ⋆ᐠ₍⁽˚⑅̆˚⁾₎ᐟ⋆ᘓમ૨ıડτന੨ડ⋆ "}]}))
 
-(defn execute! [query] (when query (sqlite/execute! db query)))
+(defn execute! [query]
+  (when query
+    (sqlite/execute! (:db @config) query)))
 
-(defn map-keys [f m] (zipmap (map f (keys m)) (vals m)))
+(defn map-keys [f m]
+  (zipmap (map f (keys m))
+          (vals m)))
+
 (defn format-results [history-results]
   (mapv #(map-keys csk/->kebab-case %)
         history-results))
 
-(defn query [sql] (format-results (sqlite/query db sql)))
+(defn query [sql]
+  (format-results
+    (sqlite/query (:db @config) sql)))
 
 (defn last-clip-db []
-  (->> {:select [:content] :from :history :order-by [[:created-at :desc]] :limit 1}
+  (->> {:select [:content]
+        :from :history
+        :order-by [[:created-at :desc]]
+        :limit 1}
        hdb/format
        query
        first
@@ -50,11 +63,32 @@
 (defonce *last-clip (atom nil))
 
 (defn insert-clip-if-needed! [clip]
-  (when
-      ;; don't just re-insert the very last clip, since this gets called many times
-      (and clip (not= @*last-clip clip))
+  (when ;; don't just re-insert the very last clip, since this gets called many times
+      (and clip
+           (not= @*last-clip clip))
     (reset! *last-clip clip)
     (execute! ["insert into history (content, created_at) VALUES (?, ?)" clip (quot (System/currentTimeMillis) 1000)])))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; modification
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defn safe-re-matches [maybe-re value]
+  (re-matches
+    (cond-> maybe-re string? re-pattern)
+    value))
+
+(defn maybe-modify
+  "Returns modified value if it matches any :re in config, otherwise returns value."
+  [modifications value]
+  (reduce
+    (fn [_ {:keys [re export] :as j}]
+      (if-let [match (safe-re-matches re value)]
+        (reduced (try (export match)
+                      (catch Throwable _ export)))
+        value))
+    value
+    modifications))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; web view
@@ -70,26 +104,39 @@
     (replace "\"" "&quot;")
     (replace "'" "&#39;")))
 
-(defn clipboard-line-item [{:keys [content created-at]}]
+(defn clipboard-line-item [{:keys [modified content created-at]}]
   (let [my-id (apply str (repeatedly 10 #(rand-nth "qwertyuiopasdfghjklzxcvbnm")))]
     [:div {:style {:min-height "30px"}}
-     [:div.clipboard-line-item {:style {:margin "5px"}}
+     [:div.clipboard-line-item {:style {:margin "3px 5px"}}
       #_[:span created-at]
       [:button {:id my-id
                 :style {:width "28px" :height "28px" :line-height "1"}}
        "📎"]
-      [:div {:style {:width "5px" :height "1px" :display "inline-block"}} " "]
+      (when (not= modified content)
+        [:button {:id (str my-id "-auto")
+                  :style {:width "28px"
+                          :height "28px"
+                          :line-height "1"
+                          :margin-left "5px"}}
+         "🤖"])
+      
+      [:div {:style {:width "5px"
+                     :height "1px"
+                     :display "inline-block"}} " "]
       [:div {:style {:margin-left "35px" :margin-top "-38px"}}
        [:pre {:id my-id
-              :style {:overflow-x "scroll"
-                      :font-family "monospace"
-                      :background-color "#eef2fe"
-                      :border "2px solid grey"
-                      :border-radius "2px"
-                      :padding "1px 3px"
-
-                      }}
-        (escape-html content)]]]
+              :style (merge {:overflow-x "scroll"
+                             :font-family "monospace"
+                             :background-color "#eef2fe"
+                             :border "2px solid grey"
+                             :border-radius "2px"
+                             :padding "1px 3px"}
+                            (when (not= modified content)
+                              {:margin-left "32px"}))}
+        (escape-html content)]
+       (when (not= modified content)
+         [:pre {:id (str my-id "-auto") :style {:display "none"}}
+          (escape-html modified)])]]
      [:script (<< "
                    var btn = htmx.find('button#{{my-id}}');
                    btn.addEventListener('click', (_) => {
@@ -99,7 +146,31 @@
 
 
 "
-                  )]]))
+                  )]
+     (when (not= modified content)
+       [:script (<< "
+                   var btn = htmx.find('button#{{my-id}}-auto');
+                   btn.addEventListener('click', (_) => {
+                      clipboardCopy(htmx.find('pre#{{my-id}}-auto').textContent);
+
+          htmx.ajax('GET', '/top-ten', {target: 'section#top-ten'})});
+
+
+"
+                    )])]))
+
+(defn show-mods [config]
+  [:div.mods
+   (into
+     [:table
+      [:thead
+       [:td "Regex"]
+       [:td "export"]]]
+     (mapv (fn [{:keys [re export]}]
+             [:tr
+              [:td (pr-str re)]
+              [:td (pr-str export)]])
+           (:modifications @config)))])
 
 (defn top-ten-section []
   [:section.top-ten
@@ -107,10 +178,14 @@
     [:h2 "Last 50"]
     [:button {:hx-get "/top-ten" :hx-target "section#top-ten"} "Refresh"]
     [:div
-     (map clipboard-line-item (query (hdb/format {:select [:content :created-at]
-                                                  :from   [:history]
-                                                  :order-by [[:created-at :desc]]
-                                                  :limit 50})))]]])
+     (map (comp clipboard-line-item
+                (fn [{:keys [content] :as li}] (assoc li :modified (maybe-modify (:modifications @config) content))))
+          (query (hdb/format {:select [:content :created-at]
+                              :from   [:history]
+                              :order-by [[:created-at :desc]]
+                              :limit 50})))]]])
+
+
 
 (defn matchize [term]
   (str/join " " (mapv #(str "*" % "*") (str/split term #" "))))
@@ -156,7 +231,7 @@
 (defn result-section [search-term]
   (let [clean (if search-term (str/trim (URLDecoder/decode search-term)) "")
         results (if search-term
-                  (sqlite/query db ["select * from history where content match ? order by created_at desc" clean])
+                  (sqlite/query (:db @config) ["select * from history where content match ? order by created_at desc" clean])
                   [])]
     (h/html [:div {:style {:border "3px solid #588" :margin "5px" :padding "5px" :margin-bottom "20px" :border-radius "10px"}}
              [:h3 [:span (count results) " Results for: "[:pre clean]]]
@@ -178,10 +253,10 @@
            [:get []] {:body (home)}
            [:get ["top-ten"]] {:body (h/html (top-ten-section))}
            [:post ["search"]] {:body (do
-                                       (println "------------------------------")
-                                       (prn req)
-                                       (prn body)
-                                       (prn search-term)
+                                       #_(println "------------------------------")
+                                       #_(prn req)
+                                       #_(prn body)
+                                       #_(prn search-term)
                                        (result-section search-term))
                                :headers {"HX-Push" (if search-term
                                                      (str "?q=" search-term)
@@ -207,14 +282,33 @@
   ;; start watcher in another thread
   (future
     (while true
-      (let [clip (:out @(shell {:out :string} "pbpaste"))]
-        (insert-clip-if-needed! clip))
-      (Thread/sleep 100)))
+      (let [clip (:out @(shell {:out :string} "pbpaste"))
+            mod-clip (maybe-modify (:modifications @config) clip)]
+        (when (not= mod-clip clip)
 
+          (println "-------------------")
+          (println "Modified Clipboard!")
+          (println "From | " clip)
+          (println "  To | " mod-clip)
+
+          (pipeline (pb ['echo '-n mod-clip]) (pb '[pbcopy])))
+        (insert-clip-if-needed! mod-clip))
+      (Thread/sleep 100)))
   (println "initialzation complete."))
 
-(when (= *file* (System/getProperty "babashka.file"))
+(defn prepare-modifications! []
+  (when (fs/exists? ".mods.edn")
+    (when-let [mods (read-string (slurp ".mods.edn"))]
+      (swap! config update
+             :modifications
+             (fn [default] (vec (concat (vec mods) default)))))))
+
+(defn main- [& args]
   (init!)
+
+  (prepare-modifications!)
+
+  (pprint/pprint @config)
 
   ;; run server
   (let [url (str "http://localhost:" port "/")]
@@ -224,7 +318,10 @@
 
   @(promise))
 
+(when (= *file* (System/getProperty "babashka.file"))
+  (main-))
+
 ;; TODO:
-;; choose how many history items to show (paginated?)
+;; paginate history items
 ;; auto refresh
-;; figure a good wya to open this
+;; figure a good way to open this
