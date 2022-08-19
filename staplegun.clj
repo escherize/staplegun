@@ -31,8 +31,7 @@
 (def config
   (atom
     {:db "staple.db"
-     :modifications [{:re "happy!!!" :export " ٩(◕‿◕｡)۶ "}
-                     {:re "mxmas" :export " ℺ຶཽྈ” ⋆ᗰદ૨૨ʏ⋆ᐠ₍⁽˚⑅̆˚⁾₎ᐟ⋆ᘓમ૨ıડτന੨ડ⋆ "}]}))
+     :modifications []}))
 
 (defn execute! [query]
   (when query
