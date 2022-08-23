@@ -1,11 +1,13 @@
 ;; #! /opt/homebrew/bin/bb
 (ns staplegun
   (:require
+   [babashka.curl :as curl]
    [babashka.deps :as deps]
    [babashka.pods :as pods]
    [babashka.process :refer [process check sh pipeline pb]]
    [babashka.fs :as fs]
    [babashka.tasks :refer [shell]]
+   [cheshire.core :as json]
    [clojure.core.match :refer [match]]
    [clojure.java.browse :as browse]
    [clojure.string :as str]
@@ -84,7 +86,9 @@
     (fn [_ {:keys [re export] :as j}]
       (if-let [match (safe-re-matches re value)]
         (reduced (try (export match)
-                      (catch Throwable _ export)))
+                      (catch Throwable _
+                        (try ((eval export) match)
+                             (catch Throwable _ export)))))
         value))
     value
     modifications))
@@ -297,17 +301,19 @@
 
 (defn prepare-modifications! []
   (when-not (fs/exists? ".mods.edn")
-    (fs/copy "example_mods.edn" ".mods.edn")
-    (when-let [mods (read-string (slurp ".mods.edn"))]
-      (swap! config update
-             :modifications
-             (fn [default] (vec (concat (vec mods) default)))))))
+    (fs/copy "example_mods.edn" ".mods.edn"))
+  (when-let [mods (read-string (slurp ".mods.edn"))]
+    (println (pr-str mods))
+    (swap! config assoc :modifications mods)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;custom functions
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 
 (defn main- [& args]
   (init!)
-
   (prepare-modifications!)
-
   (pprint/pprint @config)
 
   ;; run server
@@ -325,3 +331,4 @@
 ;; paginate history items
 ;; auto refresh
 ;; figure a good way to open this
+

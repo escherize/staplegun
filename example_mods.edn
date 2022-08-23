@@ -1,2 +1,6 @@
-[{:re "happy!!!" :export " ٩(◕‿◕｡)۶ "}
- {:re "mxmas" :export " ℺ຶཽྈ” ⋆ᗰદ૨૨ʏ⋆ᐠ₍⁽˚⑅̆˚⁾₎ᐟ⋆ᘓમ૨ıડτന੨ડ⋆ "}]
+[{:re #"happy!!!"
+  :export " ٩(◕‿◕｡)۶ "}
+ ;; if you copy: "!greet john", then paste to get back "Hello there, John!"
+ {:re #"!greet.(.+)"
+  :export (fn [[_ name]]
+            (str "Hello there, " (str/caplitalize name) "!"))}]
