@@ -273,6 +273,13 @@
 
 (def port (open-port 4321))
 
+(defn play! [& score]
+  (let [sounds [:submarine :tink :ping :glass :bottle :purr :frog :sosumi :hero :morse :pop :blow :funk :basso]]
+    (doseq [s (filter (set sounds) score)]
+      (let [sound (str "/System/Library/Sounds/" (str/capitalize (name s)) ".aiff")]
+        (future (shell (<<  "afplay {{sound}}" ))))
+      (Thread/sleep 1000))))
+
 (defn init! []
   (println "initializing...")
   (execute!
@@ -289,12 +296,14 @@
             mod-clip (maybe-modify (:modifications @config) clip)]
         (when (not= mod-clip clip)
 
+
           (println "-------------------")
           (println "Modified Clipboard!")
           (println "From | " clip)
           (println "  To | " mod-clip)
 
-          (pipeline (pb ['echo '-n mod-clip]) (pb '[pbcopy])))
+          (pipeline (pb ['echo '-n mod-clip]) (pb '[pbcopy]))
+          (play! :basso))
         (insert-clip-if-needed! mod-clip))
       (Thread/sleep 100)))
   (println "initialzation complete."))
@@ -309,7 +318,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;custom functions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
 
 (defn main- [& args]
   (init!)
