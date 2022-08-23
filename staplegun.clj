@@ -77,7 +77,7 @@
 (defn safe-re-matches [maybe-re value]
   (re-matches
     (cond-> maybe-re string? re-pattern)
-    value))
+    (str value)))
 
 (defn maybe-modify
   "Returns modified value if it matches any :re in config, otherwise returns value."
@@ -261,9 +261,7 @@
                                        #_(prn body)
                                        #_(prn search-term)
                                        (result-section search-term))
-                               :headers {"HX-Push" (if search-term
-                                                     (str "?q=" search-term)
-                                                     "/")}}
+                               :headers {"HX-Push" (if search-term (str "?q=" search-term) "/")}}
            :else {:status 404 :body "Error 404: Page not found"})))
 
 (defn open-port [n]
@@ -280,6 +278,17 @@
         (future (shell (<<  "afplay {{sound}}" ))))
       (Thread/sleep 1000))))
 
+(defn prepare-modifications! []
+  (when-not (fs/exists? ".mods.edn")
+    (fs/copy "example_mods.edn" ".mods.edn"))
+  (when-let [mods (->> (read-string (slurp ".mods.edn"))
+                       (mapv (fn [{:keys [re export]}]
+                               {:re re
+                                :source export
+                                :export (eval export)})))]
+    (println (pr-str mods))
+    (swap! config assoc :modifications mods)))
+
 (defn init! []
   (println "initializing...")
   (execute!
@@ -288,52 +297,53 @@
           " (content TEXT, "
           "  created_at INTEGER)")])
   (reset! *last-clip (last-clip-db))
-
+  (prepare-modifications!)
   ;; start watcher in another thread
   (future
     (while true
       (let [clip (:out @(shell {:out :string} "pbpaste"))
             mod-clip (maybe-modify (:modifications @config) clip)]
-        (when (not= mod-clip clip)
-
-
+        (when (and
+                (not= @*last-clip clip) ;; new clip
+                (not= mod-clip clip)) ;; clip matches a mod-regex
           (println "-------------------")
           (println "Modified Clipboard!")
           (println "From | " clip)
           (println "  To | " mod-clip)
-
           (pipeline (pb ['echo '-n mod-clip]) (pb '[pbcopy]))
           (play! :basso))
         (insert-clip-if-needed! mod-clip))
       (Thread/sleep 100)))
-  (println "initialzation complete."))
-
-(defn prepare-modifications! []
-  (when-not (fs/exists? ".mods.edn")
-    (fs/copy "example_mods.edn" ".mods.edn"))
-  (when-let [mods (read-string (slurp ".mods.edn"))]
-    (println (pr-str mods))
-    (swap! config assoc :modifications mods)))
+  (println "---- config -----------")
+  (pprint/pprint @config)
+  (println "--- end config --------")
+  (println "initialzation complete.")
+  (println "-----------------------"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;custom functions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defn main- [& args]
+
+  ;;(prn args)
+
+
   (init!)
-  (prepare-modifications!)
-  (pprint/pprint @config)
+
+
 
   ;; run server
   (let [url (str "http://localhost:" port "/")]
     (httpkit.server/run-server #'routes {:port port})
     (println "serving" url)
-    (browse/browse-url url))
+    (when-not ((set args) "--no-open")
+      (browse/browse-url url)))
 
   @(promise))
 
 (when (= *file* (System/getProperty "babashka.file"))
-  (main-))
+  (apply main- *command-line-args*))
 
 ;; TODO:
 ;; paginate history items
