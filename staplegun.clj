@@ -349,4 +349,4 @@
 ;; paginate history items
 ;; auto refresh
 ;; figure a good way to open this
-
+;; highlight + keycommand = modification?
