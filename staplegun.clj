@@ -286,8 +286,14 @@
                                {:re re
                                 :source export
                                 :export (eval export)})))]
-    (println (pr-str mods))
     (swap! config assoc :modifications mods)))
+
+(defn print-config []
+  (println "---- config -----------")
+  (pprint/pprint @config)
+  (println "--- end config --------")
+  (println "initialzation complete.")
+  (println "-----------------------"))
 
 (defn init! []
   (println "initializing...")
@@ -314,32 +320,23 @@
           (play! :basso))
         (insert-clip-if-needed! mod-clip))
       (Thread/sleep 100)))
-  (println "---- config -----------")
-  (pprint/pprint @config)
-  (println "--- end config --------")
-  (println "initialzation complete.")
-  (println "-----------------------"))
+  (print-config))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;custom functions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defn main- [& args]
-
   ;;(prn args)
-
-
   (init!)
-
-
-
-  ;; run server
+  ;; open server:
   (let [url (str "http://localhost:" port "/")]
     (httpkit.server/run-server #'routes {:port port})
     (println "serving" url)
     (when-not ((set args) "--no-open")
       (browse/browse-url url)))
 
+  ;; hang out
   @(promise))
 
 (when (= *file* (System/getProperty "babashka.file"))
