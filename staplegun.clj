@@ -234,7 +234,7 @@
 (defn result-section [search-term]
   (let [clean (if search-term (str/trim (URLDecoder/decode search-term)) "")
         results (if search-term
-                  (sqlite/query (:db @config) ["select * from history where content match ? order by created_at desc" clean])
+                  (sqlite/query (:db @config) ["select * from history where content match ? order by created_at desc limit 20" clean])
                   [])]
     (h/html [:div {:style {:border "3px solid #588" :margin "5px" :padding "5px" :margin-bottom "20px" :border-radius "10px"}}
              [:h3 [:span (count results) " Results for: "[:pre clean]]]
@@ -291,9 +291,13 @@
 (defn print-config []
   (println "---- config -----------")
   (pprint/pprint @config)
-  (println "--- end config --------")
-  (println "initialzation complete.")
-  (println "-----------------------"))
+  (println "--- end config --------"))
+
+(defn print-mods []
+  (println "---- avaliable mods -----------\n")
+  (doseq [re (sort-by pr-str (map :re (:modifications @config)))]
+    (println re "\n"))
+  (println "--- end avaliable mods --------"))
 
 (defn init! []
   (println "initializing...")
@@ -320,7 +324,9 @@
           (play! :basso))
         (insert-clip-if-needed! mod-clip))
       (Thread/sleep 100)))
-  (print-config))
+  #_(print-config)
+  (print-mods)
+  (println "initialzation complete."))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;custom functions
