@@ -1,1 +1,4 @@
 /.mods.edn
+*.iml
+/.idea
+staple.db
