@@ -3,7 +3,7 @@
  ;; if you copy: "!greet john", then paste to get back "Hello there, John!"
  {:re #"greet_(.+)"
   :export (fn [[_ name]]
-            (str "Hello there, " (str/caplitalize name) "!"))}
+            (str "Hello there, " (str/capitalize name) "!"))}
  {:re #"replace (.+) with (.+) in (.+)"
   :export (fn [[_ search replace text]]
             (str/replace text (re-pattern search) replace))}]
