@@ -1,9 +1,56 @@
-[{:re #"happy_"
+[;; ── Text shortcuts ──────────────────────────────────
+ {:re #"happy_"
   :export " ٩(◕‿◕｡)۶ "}
- ;; if you copy: "!greet john", then paste to get back "Hello there, John!"
+
+ ;; copy "greet_john" -> paste "Hello there, John!"
  {:re #"greet_(.+)"
   :export (fn [[_ name]]
             (str "Hello there, " (str/capitalize name) "!"))}
+
+ ;; ── Text transforms ────────────────────────────────
+ ;; copy "upper_some text" -> paste "SOME TEXT"
+ {:re #"upper_(.+)"
+  :export (fn [[_ text]] (str/upper-case text))}
+
+ ;; copy "lower_SOME TEXT" -> paste "some text"
+ {:re #"lower_(.+)"
+  :export (fn [[_ text]] (str/lower-case text))}
+
+ ;; copy "trim_  hello  " -> paste "hello"
+ {:re #"trim_([\s\S]+)"
+  :export (fn [[_ text]] (str/trim text))}
+
+ ;; ── Search & replace ───────────────────────────────
+ ;; copy "replace foo with bar in foo baz foo" -> "bar baz bar"
  {:re #"replace (.+) with (.+) in (.+)"
   :export (fn [[_ search replace text]]
-            (str/replace text (re-pattern search) replace))}]
+            (str/replace text (re-pattern search) replace))}
+
+ ;; ── URL / web ──────────────────────────────────────
+ ;; Strip tracking params from URLs
+ {:re #"(https?://[^\?]+)\?(?:utm_|fbclid|gclid|mc_).*"
+  :export (fn [[_ base]] base)}
+
+ ;; ── Dev helpers ────────────────────────────────────
+ ;; copy "json_{"key":"value"}" -> pretty-printed JSON
+ {:re #"json_([\s\S]+)"
+  :export (fn [[_ text]] (pretty-json text))}
+
+ ;; copy "epoch_1711929600" -> human-readable date
+ {:re #"epoch_(\d+)"
+  :export (fn [[_ ts]] (from-epoch ts))}
+
+ ;; copy "count_some words here" -> "3"
+ {:re #"count_([\s\S]+)"
+  :export (fn [[_ text]] (word-count text))}
+
+ ;; ── Shell ────────────────────────────────────────────
+ ;; copy "say_hello there" -> speaks it and pastes "hello there"
+ {:re #"say_(.+)"
+  :export (fn [[_ text]]
+            (run! "say" text)
+            text)}
+
+ ;; copy "sh_date" -> runs `date` and pastes its output
+ {:re #"sh_(.+)"
+  :export (fn [[_ cmd]] (run-out! "bash" "-c" cmd))}]
